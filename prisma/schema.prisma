@@ -1,0 +1,329 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email              String              @unique
+  passwordHash       String              @map("password_hash")
+  role               String
+  name               String?
+  phone              String?
+  createdAt          DateTime?           @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastLogin          DateTime?           @map("last_login") @db.Timestamptz(6)
+  chatMessages       ChatMessage[]
+  parent             Parent?
+  student            Student?
+  teacher            Teacher?
+  webrtcParticipants WebrtcParticipant[]
+
+  @@index([email], map: "idx_users_email")
+  @@index([role], map: "idx_users_role")
+  @@map("users")
+}
+
+model Student {
+  id              String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId          String           @unique @map("user_id") @db.Uuid
+  gradeLevel      String?          @map("grade_level")
+  stream          String?
+  coins           Int?             @default(0)
+  attendances     Attendance[]
+  chatSessions    ChatSession[]
+  enrollments     Enrollment[]
+  examAttempts    ExamAttempt[]
+  grades          Grade[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  weaknessReports WeaknessReport[]
+
+  @@index([userId], map: "idx_students_user_id")
+  @@map("students")
+}
+
+model Teacher {
+  id          String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String       @unique @map("user_id") @db.Uuid
+  bio         String?
+  specialties String[]
+  ratingAvg   Decimal?     @default(0) @map("rating_avg") @db.Decimal(3, 2)
+  courses     Course[]
+  meetings    Meeting[]
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  webrtcRooms WebrtcRoom[]
+
+  @@index([userId], map: "idx_teachers_user_id")
+  @@map("teachers")
+}
+
+model Parent {
+  id     String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId String @unique @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId], map: "idx_parents_user_id")
+  @@map("parents")
+}
+
+model Course {
+  id              String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  title           String
+  description     String?
+  teacherId       String?          @map("teacher_id") @db.Uuid
+  isCompetitive   Boolean?         @default(false) @map("is_competitive")
+  createdAt       DateTime?        @default(now()) @map("created_at") @db.Timestamptz(6)
+  teacher         Teacher?         @relation(fields: [teacherId], references: [id], onUpdate: NoAction)
+  enrollments     Enrollment[]
+  exams           Exam[]
+  lessons         Lesson[]
+  weaknessReports WeaknessReport[]
+  webrtcRooms     WebrtcRoom[]
+
+  @@index([teacherId], map: "idx_courses_teacher_id")
+  @@map("courses")
+}
+
+model Lesson {
+  id           String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  courseId     String       @map("course_id") @db.Uuid
+  title        String?
+  summary      String?
+  videoFileRef String?      @map("video_file_ref") @db.Uuid
+  pdfFileRef   String?      @map("pdf_file_ref") @db.Uuid
+  orderIndex   Int?         @map("order_index")
+  attendances  Attendance[]
+  course       Course       @relation(fields: [courseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([courseId], map: "idx_lessons_course_id")
+  @@index([courseId, orderIndex], map: "idx_lessons_order_index")
+  @@map("lessons")
+}
+
+model Enrollment {
+  studentId  String    @map("student_id") @db.Uuid
+  courseId   String    @map("course_id") @db.Uuid
+  enrolledAt DateTime? @default(now()) @map("enrolled_at") @db.Timestamptz(6)
+  course     Course    @relation(fields: [courseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([studentId, courseId])
+  @@index([courseId], map: "idx_enrollments_course_id")
+  @@index([studentId], map: "idx_enrollments_student_id")
+  @@map("enrollments")
+}
+
+model Exam {
+  id              String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  courseId        String        @map("course_id") @db.Uuid
+  title           String?
+  availableFrom   DateTime?     @map("available_from") @db.Timestamptz(6)
+  availableTo     DateTime?     @map("available_to") @db.Timestamptz(6)
+  durationMinutes Int?          @map("duration_minutes")
+  proctored       Boolean?      @default(false)
+  examAttempts    ExamAttempt[]
+  course          Course        @relation(fields: [courseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  grades          Grade[]
+  questions       Question[]
+
+  @@index([availableFrom, availableTo], map: "idx_exams_availability")
+  @@index([courseId], map: "idx_exams_course_id")
+  @@map("exams")
+}
+
+model Question {
+  id      String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  examId  String   @map("exam_id") @db.Uuid
+  body    String?
+  qtype   String?
+  points  Int?     @default(1)
+  options Option[]
+  exam    Exam     @relation(fields: [examId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([examId], map: "idx_questions_exam_id")
+  @@map("questions")
+}
+
+model Option {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  questionId String   @map("question_id") @db.Uuid
+  optionText String?  @map("option_text")
+  isCorrect  Boolean? @default(false) @map("is_correct")
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([questionId], map: "idx_options_question_id")
+  @@map("options")
+}
+
+model ExamAttempt {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  examId     String    @map("exam_id") @db.Uuid
+  studentId  String    @map("student_id") @db.Uuid
+  startedAt  DateTime? @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  score      Int?
+  answers    Json?
+  exam       Exam      @relation(fields: [examId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([examId], map: "idx_exam_attempts_exam_id")
+  @@index([startedAt], map: "idx_exam_attempts_started_at")
+  @@index([studentId], map: "idx_exam_attempts_student_id")
+  @@map("exam_attempts")
+}
+
+model Grade {
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  studentId   String    @map("student_id") @db.Uuid
+  examId      String    @map("exam_id") @db.Uuid
+  score       Int?
+  gradeLetter String?   @map("grade_letter")
+  gradedAt    DateTime? @default(now()) @map("graded_at") @db.Timestamptz(6)
+  exam        Exam      @relation(fields: [examId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([examId], map: "idx_grades_exam_id")
+  @@index([studentId], map: "idx_grades_student_id")
+  @@map("grades")
+}
+
+model Attendance {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  studentId  String   @map("student_id") @db.Uuid
+  lessonId   String   @map("lesson_id") @db.Uuid
+  attendDate DateTime @map("attend_date") @db.Date
+  present    Boolean? @default(false)
+  lesson     Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([studentId, lessonId, attendDate])
+  @@index([attendDate], map: "idx_attendance_date")
+  @@index([lessonId], map: "idx_attendance_lesson_id")
+  @@index([studentId], map: "idx_attendance_student_id")
+  @@map("attendance")
+}
+
+model Meeting {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  meetingLink   String?   @map("meeting_link")
+  hostTeacherId String    @map("host_teacher_id") @db.Uuid
+  startTime     DateTime? @map("start_time") @db.Timestamptz(6)
+  endTime       DateTime? @map("end_time") @db.Timestamptz(6)
+  description   String?
+  hostTeacher   Teacher   @relation(fields: [hostTeacherId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([hostTeacherId], map: "idx_meetings_host_teacher_id")
+  @@index([startTime], map: "idx_meetings_start_time")
+  @@map("meetings")
+}
+
+model WebrtcRoom {
+  id           String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  roomName     String              @unique @map("room_name")
+  courseId     String?             @map("course_id") @db.Uuid
+  hostId       String              @map("host_id") @db.Uuid
+  roomType     String              @map("room_type")
+  isActive     Boolean?            @default(true) @map("is_active")
+  maxCapacity  Int?                @map("max_capacity")
+  createdAt    DateTime?           @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt    DateTime?           @map("started_at") @db.Timestamptz(6)
+  endedAt      DateTime?           @map("ended_at") @db.Timestamptz(6)
+  participants WebrtcParticipant[]
+  recordings   WebrtcRecording[]
+  course       Course?             @relation(fields: [courseId], references: [id], onUpdate: NoAction)
+  host         Teacher             @relation(fields: [hostId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([courseId], map: "idx_webrtc_rooms_course_id")
+  @@index([hostId], map: "idx_webrtc_rooms_host_id")
+  @@index([isActive], map: "idx_webrtc_rooms_is_active")
+  @@index([roomName], map: "idx_webrtc_rooms_room_name")
+  @@map("webrtc_rooms")
+}
+
+model WebrtcParticipant {
+  id           String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  roomId       String     @map("room_id") @db.Uuid
+  userId       String     @map("user_id") @db.Uuid
+  peerId       String?    @map("peer_id")
+  role         String
+  joinedAt     DateTime?  @default(now()) @map("joined_at") @db.Timestamptz(6)
+  leftAt       DateTime?  @map("left_at") @db.Timestamptz(6)
+  isConnected  Boolean?   @default(true) @map("is_connected")
+  audioEnabled Boolean?   @default(true) @map("audio_enabled")
+  videoEnabled Boolean?   @default(true) @map("video_enabled")
+  screenShare  Boolean?   @default(false) @map("screen_share")
+  room         WebrtcRoom @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([roomId, isConnected], map: "idx_webrtc_participants_is_connected")
+  @@index([roomId], map: "idx_webrtc_participants_room_id")
+  @@index([userId], map: "idx_webrtc_participants_user_id")
+  @@map("webrtc_participants")
+}
+
+model WebrtcRecording {
+  id            String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  roomId        String     @map("room_id") @db.Uuid
+  fileName      String     @map("file_name")
+  fileSize      BigInt?    @map("file_size")
+  duration      Int?       @map("duration")
+  storageUrl    String?    @map("storage_url")
+  thumbnailUrl  String?    @map("thumbnail_url")
+  recordingType String?    @default("video") @map("recording_type")
+  startedAt     DateTime?  @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt       DateTime?  @map("ended_at") @db.Timestamptz(6)
+  isProcessed   Boolean?   @default(false) @map("is_processed")
+  room          WebrtcRoom @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([isProcessed], map: "idx_webrtc_recordings_is_processed")
+  @@index([roomId], map: "idx_webrtc_recordings_room_id")
+  @@index([startedAt], map: "idx_webrtc_recordings_started_at")
+  @@map("webrtc_recordings")
+}
+
+model ChatSession {
+  id          String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  studentId   String        @map("student_id") @db.Uuid
+  sessionType String        @map("session_type")
+  lastActive  DateTime?     @map("last_active") @db.Timestamptz(6)
+  messages    ChatMessage[]
+  student     Student       @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([studentId], map: "idx_chat_sessions_student_id")
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id           String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  sessionId    String      @map("session_id") @db.Uuid
+  senderUserId String      @map("sender_user_id") @db.Uuid
+  message      String?
+  sentAt       DateTime?   @default(now()) @map("sent_at") @db.Timestamptz(6)
+  sender       User        @relation(fields: [senderUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([senderUserId], map: "idx_chat_messages_sender_user_id")
+  @@index([sentAt], map: "idx_chat_messages_sent_at")
+  @@index([sessionId], map: "idx_chat_messages_session_id")
+  @@map("chat_messages")
+}
+
+model WeaknessReport {
+  id                 String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  studentId          String    @map("student_id") @db.Uuid
+  courseId           String    @map("course_id") @db.Uuid
+  topic              String?
+  severityScore      Decimal?  @map("severity_score") @db.Decimal
+  recommendedActions String?   @map("recommended_actions")
+  createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  course             Course    @relation(fields: [courseId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  student            Student   @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([courseId], map: "idx_weakness_reports_course_id")
+  @@index([severityScore(sort: Desc)], map: "idx_weakness_reports_severity_score")
+  @@index([studentId], map: "idx_weakness_reports_student_id")
+  @@map("weakness_reports")
+}
