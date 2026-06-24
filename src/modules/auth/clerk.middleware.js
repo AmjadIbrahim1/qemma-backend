@@ -1,0 +1,1 @@
+// backend/src/modules/auth/clerk.middleware.js
