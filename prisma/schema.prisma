@@ -1,0 +1,779 @@
+// backend/prisma/schema.prisma
+// CHANGE: أُضيف model Schedule
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()"))
+  email              String              @unique
+  username           String?             @unique
+  passwordHash       String?             @map("password_hash")
+  clerkUserId        String?             @unique @map("clerk_user_id")
+  authProvider       String              @default("local") @map("auth_provider")
+  role               String              @default("student")
+  name               String?
+  phone              String?             @unique
+  avatar             String?
+  isActive           Boolean             @default(true) @map("is_active")
+  lastLogin          DateTime?           @map("last_login")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  chatMessages       ChatMessage[]
+  notifications      Notification[]
+  parent             Parent?
+  student            Student?
+  teacher            Teacher?
+  webrtcParticipants WebrtcParticipant[]
+  aiAssistantUsage   AiAssistantUsage?
+
+  @@index([email])
+  @@index([username])
+  @@index([role])
+  @@map("users")
+}
+
+model Student {
+  id              String           @id @default(dbgenerated("gen_random_uuid()"))
+  userId          String           @unique @map("user_id")
+  gradeLevel      String?          @map("grade_level")
+  stream          String?
+  year            StudentYear?     // ✅ NEW: academic year enum (first/second/third) — contest eligibility & 3rd-year notification filter
+  coins           Int              @default(0)
+  rating          Int              @default(0)    // ✅ NEW: global contest rating (Elo-style), starts at 0 per scoring-system.md
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  attendances     Attendance[]
+  bookPurchases   BookPurchase[]
+  chatSessions    ChatSession[]
+  contestParticipations ContestParticipation[]   // ✅ NEW: contest participations
+  enrollments     Enrollment[]
+  examAttempts    ExamAttempt[]
+  grades          Grade[]
+  submissions     AssignmentSubmission[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentLinks     ParentStudent[]
+  weaknessReports WeaknessReport[]
+  lessonRatings   LessonRating[]
+  teacherRatings  TeacherRating[]
+  courseRatings   CourseRating[]
+  bookRatings     BookRating[]
+  aiExams         AiExam[]
+
+  @@index([userId])
+  @@index([year, stream])   // ✅ NEW: supports contest-eligibility & reminder-notification queries (year + stream)
+  @@map("students")
+}
+
+model Teacher {
+  id               String       @id @default(dbgenerated("gen_random_uuid()"))
+  userId           String       @unique @map("user_id")
+  bio              String?
+  expertise        String?
+  specialties      String[]
+  stream           String?      // ✅ NEW: teacher contest stream — 5 values (Literary/Science-Maths/Science-Biology/general/science); DB CHECK constraint enforces. Derived from subject (see subject-stream.map.js).
+  verified         Boolean      @default(false)
+  ratingAvg        Decimal?     @default(0) @map("rating_avg") @db.Decimal(3, 2)
+  linkedTeacherId  String?      @map("linked_teacher_id")
+  isActivated      Boolean      @default(false) @map("is_activated")   // ✅ NEW: assistant teacher activation (payment required)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  books            Book[]
+  courses          Course[]
+  exams            Exam[]
+  meetings         Meeting[]
+  schedules        Schedule[]
+  assignments      Assignment[]
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webrtcRooms      WebrtcRoom[]
+  teacherRatings   TeacherRating[]
+  contestQuestions ContestQuestion[]   // ✅ NEW: back-relation for question attribution
+
+  @@index([userId])
+  @@index([stream])   // ✅ NEW: supports contest notification query filtering teachers by stream
+  @@map("teachers")
+}
+
+model Parent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()"))
+  userId         String    @unique @map("user_id")
+  isActivated    Boolean   @default(false) @map("is_activated")   // ✅ NEW: parent activation via student payment
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studentLinks   ParentStudent[]
+
+  @@index([userId])
+  @@map("parents")
+}
+
+model ParentStudent {
+  parentId  String  @map("parent_id")
+  parent    Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  studentId String  @map("student_id")
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@id([parentId, studentId])
+  @@map("parent_student")
+}
+
+model Course {
+  id              String           @id @default(dbgenerated("gen_random_uuid()"))
+  teacherId       String           @map("teacher_id")
+  title           String
+  description     String?
+  thumbnail       String?
+  price           Float            @default(0)
+  platformFee     Float?
+  teacherEarning  Float?
+  isPublished     Boolean          @default(false) @map("is_published")
+  isCompetitive   Boolean          @default(false) @map("is_competitive")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  teacher         Teacher          @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  enrollments     Enrollment[]
+  exams           Exam[]
+  lessons         Lesson[]
+  schedules       Schedule[]
+  assignments     Assignment[]
+  weaknessReports WeaknessReport[]
+  webrtcRooms     WebrtcRoom[]
+  courseRatings   CourseRating[]
+
+  @@index([teacherId])
+  @@map("courses")
+}
+
+model Schedule {
+  id          String    @id @default(dbgenerated("gen_random_uuid()"))
+  teacherId   String    @map("teacher_id")
+  courseId    String?   @map("course_id")
+  title       String
+  description String?
+  date        DateTime  @db.Date
+  startTime   String    @map("start_time")
+  endTime     String    @map("end_time")
+  type        String    @default("online")
+  meetingLink String?   @map("meeting_link")
+  maxStudents Int?      @map("max_students")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  teacher     Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  course      Course?   @relation(fields: [courseId], references: [id], onDelete: SetNull)
+
+  @@index([teacherId])
+  @@index([courseId])
+  @@index([date])
+  @@map("schedules")
+}
+
+model Lesson {
+  id           String       @id @default(dbgenerated("gen_random_uuid()"))
+  courseId     String       @map("course_id")
+  title        String
+  content      String?
+  summary      String?
+  videoUrl     String?      @map("video_url")
+  videoFileRef String?      @map("video_file_ref")
+  pdfFileRef   String?      @map("pdf_file_ref")
+  order        Int
+  orderIndex   Int?         @map("order_index")
+  isPublished  Boolean      @default(false) @map("is_published")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  attendances  Attendance[]
+  assignments  Assignment[]
+  lessonRatings LessonRating[]
+  course       Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+  @@index([courseId, order])
+  @@map("lessons")
+}
+
+model LessonRating {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  lessonId  String   @map("lesson_id")
+  studentId String   @map("student_id")
+  rating    Int
+  createdAt DateTime @default(now()) @map("created_at")
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([lessonId, studentId])
+  @@map("lesson_ratings")
+}
+
+model TeacherRating {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  teacherId String   @map("teacher_id")
+  studentId String   @map("student_id")
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, studentId])
+  @@map("teacher_ratings")
+}
+
+model CourseRating {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  courseId  String   @map("course_id")
+  studentId String   @map("student_id")
+  rating    Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, studentId])
+  @@map("course_ratings")
+}
+
+model BookRating {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  bookId    String   @map("book_id")
+  studentId String   @map("student_id")
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  student   Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, studentId])
+  @@map("book_ratings")
+}
+
+model Enrollment {
+  id         String   @id @default(dbgenerated("gen_random_uuid()"))
+  studentId  String   @map("student_id")
+  courseId   String   @map("course_id")
+  progress   Int      @default(0)
+  enrolledAt DateTime @default(now()) @map("enrolled_at")
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, courseId])
+  @@index([studentId])
+  @@index([courseId])
+  @@map("enrollments")
+}
+
+model Exam {
+  id              String        @id @default(dbgenerated("gen_random_uuid()"))
+  courseId        String        @map("course_id")
+  teacherId       String        @map("teacher_id")
+  title           String
+  description     String?
+  duration        Int
+  durationMinutes Int?          @map("duration_minutes")
+  totalMarks      Int           @map("total_marks")
+  passingMarks    Int           @map("passing_marks")
+  availableFrom   DateTime?     @map("available_from")
+  availableTo     DateTime?     @map("available_to")
+  
+  isPublished     Boolean       @default(false) @map("is_published")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  attempts        ExamAttempt[]
+  course          Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teacher         Teacher       @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  grades          Grade[]
+  questions       Question[]
+
+  @@index([courseId])
+  @@index([teacherId])
+  @@index([availableFrom, availableTo])
+  @@map("exams")
+}
+
+model Question {
+  id            String   @id @default(dbgenerated("gen_random_uuid()"))
+  examId        String   @map("exam_id")
+  type          String
+  questionText  String   @map("question_text")
+  body          String?
+  qtype         String?
+  options       Json?
+  correctAnswer String?  @map("correct_answer")
+  marks         Int
+  points        Int?     @default(1)
+  order         Int
+  createdAt     DateTime @default(now()) @map("created_at")
+  optionsList   Option[]
+  exam          Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+
+  @@index([examId])
+  @@map("questions")
+}
+
+model Option {
+  id         String   @id @default(dbgenerated("gen_random_uuid()"))
+  questionId String   @map("question_id")
+  optionText String   @map("option_text")
+  isCorrect  Boolean  @default(false) @map("is_correct")
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("options")
+}
+
+model ExamAttempt {
+  id          String    @id @default(dbgenerated("gen_random_uuid()"))
+  examId      String    @map("exam_id")
+  studentId   String    @map("student_id")
+  answers     Json
+  score       Float?
+  isPassed    Boolean?  @map("is_passed")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  submittedAt DateTime? @map("submitted_at")
+  finishedAt  DateTime? @map("finished_at")
+  exam        Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student     Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([examId])
+  @@index([studentId])
+  @@index([startedAt])
+  @@map("exam_attempts")
+}
+
+model Grade {
+  id          String   @id @default(dbgenerated("gen_random_uuid()"))
+  studentId   String   @map("student_id")
+  examId      String   @map("exam_id")
+  score       Int?
+  gradeLetter String?  @map("grade_letter")
+  gradedAt    DateTime @default(now()) @map("graded_at")
+  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([examId])
+  @@map("grades")
+}
+
+model Attendance {
+  id         String   @id @default(dbgenerated("gen_random_uuid()"))
+  studentId  String   @map("student_id")
+  lessonId   String   @map("lesson_id")
+  attendDate DateTime @map("attend_date") @db.Date
+  present    Boolean  @default(false)
+  lesson     Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, lessonId, attendDate])
+  @@index([studentId])
+  @@index([lessonId])
+  @@index([attendDate])
+  @@map("attendance")
+}
+
+model Meeting {
+  id            String    @id @default(dbgenerated("gen_random_uuid()"))
+  meetingLink   String?   @map("meeting_link")
+  hostTeacherId String    @map("host_teacher_id")
+  startTime     DateTime? @map("start_time")
+  endTime       DateTime? @map("end_time")
+  description   String?
+  hostTeacher   Teacher   @relation(fields: [hostTeacherId], references: [id], onDelete: Cascade)
+
+  @@index([hostTeacherId])
+  @@index([startTime])
+  @@map("meetings")
+}
+
+model WebrtcRoom {
+  id           String              @id @default(dbgenerated("gen_random_uuid()"))
+  roomName     String              @unique @map("room_name")
+  courseId     String?             @map("course_id")
+  hostId       String              @map("host_id")
+  roomType     String              @map("room_type")
+  isActive     Boolean             @default(true) @map("is_active")
+  maxCapacity  Int?                @map("max_capacity")
+  title        String?
+  description  String?
+  scheduledAt  DateTime?           @map("scheduled_at")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  startedAt    DateTime?           @map("started_at")
+  endedAt      DateTime?           @map("ended_at")
+  participants WebrtcParticipant[]
+  recordings   WebrtcRecording[]
+  course       Course?             @relation(fields: [courseId], references: [id])
+  host         Teacher             @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@index([roomName])
+  @@index([courseId])
+  @@index([hostId])
+  @@index([isActive])
+  @@map("webrtc_rooms")
+}
+
+model WebrtcParticipant {
+  id           String     @id @default(dbgenerated("gen_random_uuid()"))
+  roomId       String     @map("room_id")
+  userId       String     @map("user_id")
+  peerId       String?    @map("peer_id")
+  role         String
+  joinedAt     DateTime   @default(now()) @map("joined_at")
+  leftAt       DateTime?  @map("left_at")
+  isConnected  Boolean    @default(true) @map("is_connected")
+  audioEnabled Boolean    @default(true) @map("audio_enabled")
+  videoEnabled Boolean    @default(true) @map("video_enabled")
+  screenShare  Boolean    @default(false) @map("screen_share")
+  room         WebrtcRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([userId])
+  @@index([roomId, isConnected])
+  @@map("webrtc_participants")
+}
+
+model WebrtcRecording {
+  id            String     @id @default(dbgenerated("gen_random_uuid()"))
+  roomId        String     @map("room_id")
+  fileName      String     @map("file_name")
+  fileSize      BigInt?    @map("file_size")
+  duration      Int?
+  storageUrl    String?    @map("storage_url")
+  thumbnailUrl  String?    @map("thumbnail_url")
+  recordingType String     @default("video") @map("recording_type")
+  startedAt     DateTime   @default(now()) @map("started_at")
+  endedAt       DateTime?  @map("ended_at")
+  isProcessed   Boolean    @default(false) @map("is_processed")
+  room          WebrtcRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([startedAt])
+  @@index([isProcessed])
+  @@map("webrtc_recordings")
+}
+
+model ChatSession {
+  id          String        @id @default(dbgenerated("gen_random_uuid()"))
+  studentId   String        @map("student_id")
+  sessionType String        @map("session_type")
+  lastActive  DateTime?     @map("last_active")
+  messages    ChatMessage[]
+  student     Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id           String      @id @default(dbgenerated("gen_random_uuid()"))
+  sessionId    String      @map("session_id")
+  senderUserId String      @map("sender_user_id")
+  message      String?
+  sentAt       DateTime    @default(now()) @map("sent_at")
+  sender       User        @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([senderUserId])
+  @@index([sentAt])
+  @@map("chat_messages")
+}
+
+model WeaknessReport {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()"))
+  studentId          String   @map("student_id")
+  courseId           String   @map("course_id")
+  topic              String?
+  severityScore      Decimal? @map("severity_score") @db.Decimal
+  recommendedActions String?  @map("recommended_actions")
+  createdAt          DateTime @default(now()) @map("created_at")
+  course             Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student            Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([courseId])
+  @@index([severityScore(sort: Desc)])
+  @@map("weakness_reports")
+}
+
+model Notification {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  userId    String   @map("user_id")
+  type      String   @default("general")
+  title     String
+  body      String?
+  data      Json?
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model AiAssistantUsage {
+  id            String   @id @default(dbgenerated("gen_random_uuid()"))
+  userId        String   @unique @map("user_id")
+  messagesCount Int      @default(0) @map("messages_count")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ai_assistant_usage")
+}
+
+model Book {
+  id          String         @id @default(dbgenerated("gen_random_uuid()"))
+  teacherId   String         @map("teacher_id")
+  title       String
+  description String?
+  subject     String
+  grade       String
+  price       Float          @default(0)
+  coverImage  String?        @map("cover_image")
+  pdfFileRef  String?        @map("pdf_file_ref")
+  bookType    String         @default("physical")
+  isPublished Boolean        @default(false) @map("is_published")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  teacher     Teacher        @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  purchases   BookPurchase[]
+  bookRatings BookRating[]
+
+  @@index([teacherId])
+  @@index([subject])
+  @@index([grade])
+  @@map("books")
+}
+
+model BookPurchase {
+  id                String   @id @default(dbgenerated("gen_random_uuid()"))
+  bookId            String   @map("book_id")
+  studentId         String   @map("student_id")
+  paidAt            DateTime @default(now()) @map("paid_at")
+  platformCommission Float?  @map("platform_commission")
+  teacherEarning     Float?  @map("teacher_earning")
+  book              Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  student           Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, studentId])
+  @@index([bookId])
+  @@index([studentId])
+  @@map("book_purchases")
+}
+
+model Assignment {
+  id          String                 @id @default(dbgenerated("gen_random_uuid()"))
+  teacherId   String                 @map("teacher_id")
+  courseId    String                 @map("course_id")
+  lessonId    String?                @map("lesson_id")
+  title       String
+  description String?
+  dueDate     DateTime?              @map("due_date")
+  maxScore    Int                    @default(100) @map("max_score")
+  attachments Json?
+  isPublished Boolean                @default(true) @map("is_published")
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+  teacher     Teacher                @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  course      Course                 @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lesson      Lesson?                @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  submissions AssignmentSubmission[]
+
+  @@index([teacherId])
+  @@index([courseId])
+  @@index([lessonId])
+  @@index([courseId, isPublished])
+  @@map("assignments")
+}
+
+model AssignmentSubmission {
+  id           String     @id @default(dbgenerated("gen_random_uuid()"))
+  assignmentId String     @map("assignment_id")
+  studentId    String     @map("student_id")
+  fileUrl      String?    @map("file_url")
+  fileType     String?    @map("file_type")
+  fileName     String?    @map("file_name")
+  notes        String?
+  score        Int?
+  feedback     String?
+  gradedAt     DateTime?  @map("graded_at")
+  submittedAt  DateTime   @default(now()) @map("submitted_at")
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student      Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, studentId])
+  @@index([assignmentId])
+  @@index([studentId])
+  @@index([submittedAt])
+  @@map("assignment_submissions")
+}
+
+// ✅ NEW: academic year enum — DB-level enforcement of allowed year values (first/second/third).
+// Backend enforcement lives in auth.validator.js (registerValidation). See notification-system.md
+// (filter year === 'third' for 3rd-year contest reminders).
+enum StudentYear {
+  first
+  second
+  third
+}
+
+// ✅ NEW (planning_prompts/contests-schemas.md): Contest aggregate.
+// stream ∈ {Literary, Science-Maths, Science-Biology} (canonical, matches Student.stream/Teacher.stream);
+// difficulty ∈ {Easy, Medium, Hard} (multiplier 1.0/1.5/2.0 in rating algorithm).
+model Contest {
+  id             String                 @id @default(dbgenerated("gen_random_uuid()"))
+  title          String
+  stream         String
+  difficulty     String
+  duration       Int
+  startTime      DateTime               @map("start_time")
+  questionCount  Int?                   @map("question_count")
+  isTest         Boolean                @default(false) @map("is_test")  // ✅ NEW: dev-only flag — skips time checks
+  // ✅ NEW (AI question generation): persistent idempotency/observability marker.
+  // null = not yet evaluated by the generator job; 'pending' = picked up; 'completed' = gap
+  // filled (or teacher already met the required count); 'failed' = attempts exhausted;
+  // 'not_needed' = teacher already met the required count at the 60-min mark.
+  aiGenerationStatus String?            @map("ai_generation_status")
+  aiGeneratedAt      DateTime?          @map("ai_generated_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  questions      ContestQuestion[]
+  participations ContestParticipation[]
+
+  @@index([stream])
+  @@index([startTime])
+  // ✅ NEW: DB-level idempotency for contestGenerator — prevents duplicate contests with the
+  // same (startTime, stream) even under concurrent cron + startup catch-up runs.
+  @@unique([startTime, stream])
+  @@map("contests")
+}
+
+// ✅ NEW: contest question. pointValue is the teacher-assigned weight (scoring-system.md Step 1).
+model ContestQuestion {
+  id         String          @id @default(dbgenerated("gen_random_uuid()"))
+  contestId  String          @map("contest_id")
+  text       String
+  pointValue Int             @map("point_value")
+  // ✅ NEW: question type — 'mcq' (multiple choice, default) or 'true_false'
+  questionType String        @default("mcq") @map("question_type")
+  // ✅ NEW (AI question generation): marks questions produced by the AI generator job so
+  // teacher-authored and AI-authored questions are distinguishable (observability only).
+  aiGenerated Boolean        @default(false) @map("ai_generated")
+  // ✅ NEW: attribution — which teacher authored this question. null for AI-generated questions.
+  // SetNull so the question survives if the teacher account is deleted (author becomes "unknown").
+  teacherId  String?         @map("teacher_id")
+  createdAt  DateTime        @default(now()) @map("created_at")
+  contest    Contest         @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  teacher    Teacher?        @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  options    ContestOption[]
+  answers    ContestAnswer[]
+
+  @@index([contestId])
+  @@index([teacherId])
+  @@map("contest_questions")
+}
+
+// ✅ NEW: MCQ option. isCorrect drives ContestAnswer.isCorrect via the grading logic.
+model ContestOption {
+  id                String          @id @default(dbgenerated("gen_random_uuid()"))
+  contestQuestionId String          @map("contest_question_id")
+  text              String
+  isCorrect         Boolean         @default(false) @map("is_correct")
+  contestQuestion   ContestQuestion @relation(fields: [contestQuestionId], references: [id], onDelete: Cascade)
+
+  @@index([contestQuestionId])
+  @@map("contest_options")
+}
+
+// ✅ NEW: one row per student per contest. Stores the per-contest score + rating delta fields
+// required by scoring-system.md (Algorithms 1 & 2). @@unique enforces one participation per contest.
+// ✅ CHANGED: scoring/rating fields made NULLABLE — scoring runs AFTER the contest ends (scoring-system.md),
+//    so a participation row must exist DURING the contest (to record answers) with these filled later by the
+//    (out-of-scope) scoring batch job. Added submittedAt to mark the student's final submission.
+model ContestParticipation {
+  id                      String          @id @default(dbgenerated("gen_random_uuid()"))
+  contestId               String          @map("contest_id")
+  studentId               String          @map("student_id")
+  finalContestScore       Float?          @map("final_contest_score")     // ✅ nullable (filled post-contest)
+  rawScore                Float?          @map("raw_score")               // ✅ nullable
+  totalTimePenaltyMinutes Float?          @map("total_time_penalty_minutes") // ✅ nullable
+  actualRank              Int?            @map("actual_rank")             // ✅ nullable
+  ratingBefore            Int?            @map("rating_before")           // ✅ nullable
+  ratingDelta             Int?            @map("rating_delta")            // ✅ nullable
+  ratingAfter             Int?            @map("rating_after")            // ✅ nullable
+  isFirstContest          Boolean         @default(false) @map("is_first_contest")
+  submittedAt             DateTime?       @map("submitted_at")            // ✅ NEW: student's final submission timestamp (null = in progress)
+  createdAt               DateTime        @default(now()) @map("created_at")
+  contest                 Contest         @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  student                 Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers                 ContestAnswer[]
+
+  @@unique([contestId, studentId])
+  @@index([contestId])
+  @@index([studentId])
+  @@map("contest_participations")
+}
+
+// ✅ NEW: one answer per question per participation (@@unique enforces single attempt).
+// submittedAt vs Contest.startTime gives the per-question time penalty (scoring-system.md Step 2).
+model ContestAnswer {
+  id                String               @id @default(dbgenerated("gen_random_uuid()"))
+  participationId   String               @map("participation_id")
+  contestQuestionId String               @map("contest_question_id")
+  selectedOptionId  String?              @map("selected_option_id")
+  isCorrect         Boolean              @default(false) @map("is_correct")
+  submittedAt       DateTime             @map("submitted_at")
+  participation     ContestParticipation @relation(fields: [participationId], references: [id], onDelete: Cascade)
+  contestQuestion   ContestQuestion      @relation(fields: [contestQuestionId], references: [id], onDelete: Cascade)
+
+  @@unique([participationId, contestQuestionId])
+  @@index([participationId])
+  @@index([contestQuestionId])
+  @@map("contest_answers")
+}
+
+model AiExam {
+  id              String      @id @default(dbgenerated("gen_random_uuid()"))
+  studentId       String      @map("student_id")
+  grade           String
+  subject         String
+  chapter         String
+  difficulty      String
+  answers         Json?
+  score           Int?
+  totalMarks      Int?
+  passed          Boolean?
+  startedAt       DateTime?   @map("started_at")
+  submittedAt     DateTime?   @map("submitted_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  student         Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  questions       AiQuestion[]
+
+  @@index([studentId])
+  @@map("ai_exams")
+}
+
+model AiQuestion {
+  id            String   @id @default(dbgenerated("gen_random_uuid()"))
+  aiExamId      String   @map("ai_exam_id")
+  questionText  String   @map("question_text")
+  options       Json?
+  correctAnswer String?  @map("correct_answer")
+  marks         Int      @default(1)
+  order         Int
+  createdAt     DateTime @default(now()) @map("created_at")
+  aiExam        AiExam   @relation(fields: [aiExamId], references: [id], onDelete: Cascade)
+
+  @@index([aiExamId])
+  @@map("ai_questions")
+}
