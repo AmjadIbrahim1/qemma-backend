@@ -18,9 +18,25 @@
 
 ## 📌 Project Overview
 
-**Qemma Backend** is the server-side application for **Qemma**, an AI-powered Learning Management System (LMS). It provides the API layer, real-time communication, and data persistence for the platform.
+**Qemma Backend** is the **server-side application** of the **Qemma** project — an AI-powered Learning Management System (LMS). It provides the API layer, real-time communication, and data persistence for the platform.
+
+**Its role in the project:** the backend is the engine of Qemma. It exposes the REST API consumed by the frontend, manages users, courses, and content in the databases, handles real-time events via Socket.IO, and hosts the AI features of the platform.
 
 > **Status:** Repository scaffold — issue/PR templates are set up and the tech stack is defined. Implementation is in progress.
+
+---
+
+## 🏗️ Project Architecture — The Qemma Ecosystem
+
+Qemma is **one project split across three repositories**:
+
+| Repository | Role in the project | Link |
+|------------|--------------------|------|
+| **Qema-Graduation-Project** | Documentation hub — SRS, ERD, timelines, testing & user manual | [Open](https://github.com/AmjadIbrahim1/Qema-Graduation-Project) |
+| **qemma-backend** *(this repo)* | Backend API & real-time server (Node.js, Express, PostgreSQL, Redis) | [Open](https://github.com/AmjadIbrahim1/qemma-backend) |
+| **qemma-frontend** | Frontend web application (React, Redux Toolkit, WebRTC) | [Open](https://github.com/AmjadIbrahim1/qemma-frontend) |
+
+> 📖 Start with the [Qema-Graduation-Project](https://github.com/AmjadIbrahim1/Qema-Graduation-Project) repository for the full system documentation (SRS, ERD, timelines).
 
 ---
 
